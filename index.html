@@ -43,7 +43,96 @@ function normalise(r){const o={};for(const[k,a]of Object.entries(ALIASES))o[k]=p
 const esc=v=>text(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));const fmt=(n,d=2)=>new Intl.NumberFormat(CONFIG.LOCALE,{maximumFractionDigits:d}).format(n||0);const money=n=>new Intl.NumberFormat(CONFIG.LOCALE,{style:'currency',currency:CONFIG.CURRENCY,maximumFractionDigits:2}).format(n||0);const fdate=v=>{const d=v instanceof Date?v:date(v);return d?new Intl.DateTimeFormat(CONFIG.LOCALE).format(d):'—'};const sum=(a,g)=>a.reduce((s,x)=>s+(Number(g(x))||0),0);const unique=(a,g)=>[...new Set(a.map(g).map(text).filter(Boolean))];const countBy=(a,g)=>a.reduce((o,x)=>{const k=text(g(x))||'Sin información';o[k]=(o[k]||0)+1;return o},{});const entries=(o,n=99)=>Object.entries(o).sort((a,b)=>b[1]-a[1]).slice(0,n);
 function toast(m,error=false){const t=$('toast');t.textContent=m;t.className=`toast show${error?' error':''}`;clearTimeout(t.timer);t.timer=setTimeout(()=>t.className='toast',4000)}function connection(mode,label){$('connectionDot').className=`dot ${mode}`;$('connectionText').textContent=label}
 function cleanupJsonp(){if(!activeJsonp)return;clearTimeout(activeJsonp.timeout);activeJsonp.script.remove();try{delete window[activeJsonp.callback]}catch{}activeJsonp=null}
-function fetchData(){cleanupJsonp();$('refreshBtn').disabled=true;$('refreshBtn').textContent='Actualizando...';connection('','Conectando...');const callback=`iw38_${Date.now()}_${Math.floor(Math.random()*100000)}`;const script=document.createElement('script');const finish=()=>{$('refreshBtn').disabled=false;$('refreshBtn').textContent='Actualizar ahora'};window[callback]=payload=>{try{const rows=Array.isArray(payload)?payload:payload&&payload.data;if(!Array.isArray(rows))throw new Error('El endpoint no devolvió un array.');rawData=rows.map(normalise).filter(r=>r.orden||r.aviso||r.texto);populateFilters();applyFilters();connection('ok','Conectado');$('sourceText').textContent='Fuente: Google Sheets vía Apps Script';$('lastUpdate').textContent=`Última actualización: ${new Intl.DateTimeFormat(CONFIG.LOCALE,{dateStyle:'short',timeStyle:'medium'}).format(new Date())}`;toast(`${rawData.length} registros cargados correctamente.`)}catch(e){connection('error','Error procesando datos');toast(`Error procesando datos: ${e.message}`,true)}finally{cleanupJsonp();finish()}};script.onerror=()=>{connection('error','Error de conexión');toast('No se pudo cargar JSONP. Verifica la implementación y que doGet(e) admita ?callback=nombre.',true);cleanupJsonp();finish()};script.src=`${CONFIG.GAS_WEB_APP_URL}?callback=${encodeURIComponent(callback)}&_=${Date.now()}`;const timeout=setTimeout(()=>{connection('error','Tiempo de espera agotado');toast('Google Apps Script no respondió dentro de 30 segundos.',true);cleanupJsonp();finish()},CONFIG.JSONP_TIMEOUT_MS);activeJsonp={callback,script,timeout};document.body.appendChild(script)}
+async function fetchData() {
+
+  $('refreshBtn').disabled = true;
+  $('refreshBtn').textContent =
+    'Actualizando...';
+
+  try {
+
+    const response =
+      await fetch(
+        CONFIG.GAS_WEB_APP_URL,
+        {
+          cache: 'no-store'
+        }
+      );
+
+    if (!response.ok) {
+
+      throw new Error(
+        'HTTP ' +
+        response.status
+      );
+
+    }
+
+    const rows =
+      await response.json();
+
+    rawData = rows
+      .map(normalise)
+      .filter(r =>
+        r.orden ||
+        r.aviso ||
+        r.texto
+      );
+
+    populateFilters();
+
+    applyFilters();
+
+    connection(
+      'ok',
+      'Conectado'
+    );
+
+    $('sourceText').textContent =
+      'Fuente: Google Sheets vía Apps Script';
+
+    $('lastUpdate').textContent =
+      new Intl.DateTimeFormat(
+        CONFIG.LOCALE,
+        {
+          dateStyle: 'short',
+          timeStyle: 'medium'
+        }
+      ).format(
+        new Date()
+      );
+
+    toast(
+      rawData.length +
+      ' registros cargados correctamente.'
+    );
+
+  }
+  catch (err) {
+
+    console.error(err);
+
+    connection(
+      'error',
+      'Error de conexión'
+    );
+
+    toast(
+      err.message,
+      true
+    );
+
+  }
+  finally {
+
+    $('refreshBtn').disabled = false;
+
+    $('refreshBtn').textContent =
+      'Actualizar ahora';
+
+  }
+
+}
 function fill(id,vals,all='Todos'){const el=$(id),current=el.value;el.innerHTML=`<option value="">${all}</option>`+vals.sort((a,b)=>a.localeCompare(b,'es')).map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');if([...el.options].some(o=>o.value===current))el.value=current}function populateFilters(){fill('responsableFilter',unique(rawData,r=>r.responsable));fill('ubicacionFilter',unique(rawData,r=>r.ubicacion),'Todas');fill('claseFilter',unique(rawData,r=>r.clase),'Todas');fill('autorFilter',unique(rawData,r=>r.autor));fill('estadoUsuarioFilter',unique(rawData,r=>r.statusUsuario));fill('revisionFilter',unique(rawData,r=>r.revision),'Todas')}
 function applyFilters(){const f={responsable:$('responsableFilter').value,ubicacion:$('ubicacionFilter').value,clase:$('claseFilter').value,autor:$('autorFilter').value,usuario:$('estadoUsuarioFilter').value,sistema:$('estadoSistemaFilter').value.toLowerCase(),revision:$('revisionFilter').value,desde:$('fechaDesde').value,hasta:$('fechaHasta').value,q:$('globalSearch').value.toLowerCase().trim()};filteredData=rawData.filter(r=>{if(f.responsable&&text(r.responsable)!==f.responsable)return false;if(f.ubicacion&&text(r.ubicacion)!==f.ubicacion)return false;if(f.clase&&text(r.clase)!==f.clase)return false;if(f.autor&&text(r.autor)!==f.autor)return false;if(f.usuario&&text(r.statusUsuario)!==f.usuario)return false;if(f.revision&&text(r.revision)!==f.revision)return false;if(f.sistema&&!text(r.statusSistema).toLowerCase().includes(f.sistema))return false;const c=r.creacionDate?iso(r.creacionDate):'';if(f.desde&&(!c||c<f.desde))return false;if(f.hasta&&(!c||c>f.hasta))return false;if(f.q){const h=Object.entries(r).filter(([k])=>!k.endsWith('Date')&&!k.endsWith('Num')).map(([,v])=>text(v)).join(' ').toLowerCase();if(!h.includes(f.q))return false}return true});renderAll()}function clearFilters(){['responsableFilter','ubicacionFilter','claseFilter','autorFilter','estadoUsuarioFilter','estadoSistemaFilter','revisionFilter','fechaDesde','fechaHasta','globalSearch'].forEach(id=>$(id).value='');applyFilters()}
 function renderAll(){renderKpis();renderCharts();renderTable();$('recordCounter').textContent=`${filteredData.length} de ${rawData.length} registros`}function renderKpis(){const total=filteredData.length,plan=sum(filteredData,r=>r.planNum),real=sum(filteredData,r=>r.realNum),closed=filteredData.filter(r=>r.closed).length,dev=plan?((real-plan)/plan)*100:(real?100:0);$('kpiTotal').textContent=fmt(total,0);$('kpiOpen').textContent=fmt(total-closed,0);$('kpiClosed').textContent=fmt(closed,0);$('kpiPlan').textContent=money(plan);$('kpiReal').textContent=money(real);$('kpiDeviation').textContent=`${dev>=0?'+':''}${fmt(dev,1)}%`;$('kpiLocations').textContent=fmt(unique(filteredData,r=>r.ubicacion).length,0);$('kpiResponsibles').textContent=fmt(unique(filteredData,r=>r.responsable).length,0);$('deviationCard').className=`kpi ${dev>0?'red':'green'}`}
